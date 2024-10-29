@@ -715,7 +715,7 @@ public class CatalystQueryPlanVisitor extends AbstractNodeVisitor<LogicalPlan, C
                                 Option.empty(),
                                 seq(new java.util.ArrayList<String>())));
             } else {
-                throw new IllegalArgumentException("WMA is not supported");
+                throw new IllegalArgumentException(node.getComputationType()+" is not supported");
             }
         }
 
