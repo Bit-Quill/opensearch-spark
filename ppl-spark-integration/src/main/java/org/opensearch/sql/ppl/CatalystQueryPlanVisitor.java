@@ -111,6 +111,7 @@ import org.opensearch.sql.ppl.utils.ComparatorTransformer;
 import org.opensearch.sql.ppl.utils.FieldSummaryTransformer;
 import org.opensearch.sql.ppl.utils.ParseStrategy;
 import org.opensearch.sql.ppl.utils.SortUtils;
+import org.opensearch.sql.ppl.utils.TrendlineStrategy;
 import org.opensearch.sql.ppl.utils.WindowSpecTransformer;
 import scala.Option;
 import scala.Tuple2;
@@ -281,14 +282,16 @@ public class CatalystQueryPlanVisitor extends AbstractNodeVisitor<LogicalPlan, C
                     context.apply(p -> new org.apache.spark.sql.catalyst.plans.logical.Sort(sortOrder, true, p));
                 });
 
+        List<NamedExpression> trendlineProjectExpressions = new ArrayList<>();
+
         if (context.getNamedParseExpressions().isEmpty()) {
             // Create an UnresolvedStar for all-fields projection
-            context.getNamedParseExpressions().push(UnresolvedStar$.MODULE$.apply(Option.empty()));
+            trendlineProjectExpressions.add(UnresolvedStar$.MODULE$.apply(Option.empty()));
         }
-        visitExpressionList(node.getComputations(), context);
-        Seq<NamedExpression> projectExpressions = context.retainAllNamedParseExpressions(p -> (NamedExpression) p);
 
-        return context.apply(p -> new org.apache.spark.sql.catalyst.plans.logical.Project(projectExpressions, p));
+        trendlineProjectExpressions.addAll(TrendlineStrategy.visitTrendlineComputations(expressionAnalyzer, node.getComputations(), context));
+
+        return context.apply(p -> new org.apache.spark.sql.catalyst.plans.logical.Project(seq(trendlineProjectExpressions), p));
     }
 
     @Override
@@ -681,64 +684,6 @@ public class CatalystQueryPlanVisitor extends AbstractNodeVisitor<LogicalPlan, C
             node.getValue().accept(this, context);
             Expression value = (Expression) context.popNamedParseExpressions().get();
             return context.getNamedParseExpressions().push(window(field, value, node.getUnit()));
-        }
-
-        @Override
-        public Expression visitTrendlineComputation(Trendline.TrendlineComputation node, CatalystPlanContext context) {
-            //window lower boundary
-            this.visitLiteral(new Literal(Math.negateExact(node.getNumberOfDataPoints() - 1), DataType.INTEGER), context);
-            Expression windowLowerBoundary = context.popNamedParseExpressions().get();
-
-            //window definition
-            WindowSpecDefinition windowDefinition = new WindowSpecDefinition(
-                    seq(),
-                    seq(),
-                    new SpecifiedWindowFrame(RowFrame$.MODULE$, windowLowerBoundary, CurrentRow$.MODULE$));
-
-            if (node.getComputationType() == Trendline.TrendlineType.SMA) {
-                //calculate avg value of the data field
-                this.visitAggregateFunction(new AggregateFunction(BuiltinFunctionName.AVG.name(), node.getDataField()), context);
-                Expression avgFunction = context.popNamedParseExpressions().get();
-
-                //sma window
-                WindowExpression sma = new WindowExpression(
-                        avgFunction,
-                        windowDefinition);
-
-                CaseWhen smaOrNull = trendlineOrNullWhenThereAreTooFewDataPoints(sma, node, context);
-
-                return context.getNamedParseExpressions().push(
-                        org.apache.spark.sql.catalyst.expressions.Alias$.MODULE$.apply(smaOrNull,
-                                node.getAlias(),
-                                NamedExpression.newExprId(),
-                                seq(new java.util.ArrayList<String>()),
-                                Option.empty(),
-                                seq(new java.util.ArrayList<String>())));
-            } else {
-                throw new IllegalArgumentException(node.getComputationType()+" is not supported");
-            }
-        }
-
-        private CaseWhen trendlineOrNullWhenThereAreTooFewDataPoints(WindowExpression trendlineWindow, Trendline.TrendlineComputation node, CatalystPlanContext context) {
-            //required number of data points
-            this.visitLiteral(new Literal(node.getNumberOfDataPoints(), DataType.INTEGER), context);
-            Expression requiredNumberOfDataPoints = context.popNamedParseExpressions().get();
-
-            //count data points function
-            this.visitAggregateFunction(new AggregateFunction(BuiltinFunctionName.COUNT.name(), new Literal(1, DataType.INTEGER)), context);
-            Expression countDataPointsFunction = context.popNamedParseExpressions().get();
-            //count data points window
-            WindowExpression countDataPointsWindow = new WindowExpression(
-                    countDataPointsFunction,
-                    trendlineWindow.windowSpec());
-
-            this.visitLiteral(new Literal(null, DataType.NULL), context);
-            Expression nullLiteral = context.popNamedParseExpressions().get();
-            Tuple2<Expression, Expression> nullWhenNumberOfDataPointsLessThenRequired = new Tuple2<>(
-                    new LessThan(countDataPointsWindow, requiredNumberOfDataPoints),
-                    nullLiteral
-            );
-            return new CaseWhen(seq(nullWhenNumberOfDataPointsLessThenRequired), Option.apply(trendlineWindow));
         }
 
         @Override
