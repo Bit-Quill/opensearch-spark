@@ -58,6 +58,11 @@ public interface TrendlineCatalystUtils {
                             seq(new java.util.ArrayList<String>()),
                             Option.empty(),
                             seq(new java.util.ArrayList<String>()));
+        } else if (node.getComputationType() == Trendline.TrendlineType.WMA) {
+
+            //WMA Logic
+
+
         } else {
             throw new IllegalArgumentException(node.getComputationType()+" is not supported");
         }
