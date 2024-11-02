@@ -24,6 +24,29 @@ class PPLLogicalPlanTrendlineCommandTranslatorTestSuite
   private val planTransformer = new CatalystQueryPlanVisitor()
   private val pplParser = new PPLSyntaxParser()
 
+  test("WMA") {
+    val context = new CatalystPlanContext
+    val logPlan =
+      planTransformer.visit(plan(pplParser, "source=relation | trendline wma(3, age)"), context)
+
+    println(logPlan.toString())
+
+
+//    val table = UnresolvedRelation(Seq("relation"))
+//    val ageField = UnresolvedAttribute("age")
+//    val countWindow = new WindowExpression(
+//      UnresolvedFunction("COUNT", Seq(Literal(1)), isDistinct = false),
+//      WindowSpecDefinition(Seq(), Seq(), SpecifiedWindowFrame(RowFrame, Literal(-2), CurrentRow)))
+//    val smaWindow = WindowExpression(
+//      UnresolvedFunction("AVG", Seq(ageField), isDistinct = false),
+//      WindowSpecDefinition(Seq(), Seq(), SpecifiedWindowFrame(RowFrame, Literal(-2), CurrentRow)))
+//    val caseWhen = CaseWhen(Seq((LessThan(countWindow, Literal(3)), Literal(null))), smaWindow)
+//    val trendlineProjectList = Seq(UnresolvedStar(None), Alias(caseWhen, "age_trendline")())
+//    val expectedPlan =
+//      Project(Seq(UnresolvedStar(None)), Project(trendlineProjectList, table))
+//    comparePlans(logPlan, expectedPlan, checkAnalysis = false)
+  }
+
   test("test trendline") {
     val context = new CatalystPlanContext
     val logPlan =

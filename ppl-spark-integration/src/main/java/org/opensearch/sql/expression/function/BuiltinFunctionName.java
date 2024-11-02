@@ -184,6 +184,8 @@ public enum BuiltinFunctionName {
   NESTED(FunctionName.of("nested")),
   PERCENTILE(FunctionName.of("percentile")),
   PERCENTILE_APPROX(FunctionName.of("percentile_approx")),
+  // Analytic related
+  NTH_VALUE(FunctionName.of("nth_value")),
 
   /** Text Functions. */
   ASCII(FunctionName.of("ascii")),

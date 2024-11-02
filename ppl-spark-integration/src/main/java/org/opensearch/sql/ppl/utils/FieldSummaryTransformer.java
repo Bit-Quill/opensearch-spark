@@ -245,7 +245,7 @@ public interface FieldSummaryTransformer {
                 seq());
         Aggregate aggregate = new Aggregate(seq(fieldLiteral), seq(countAlias), context.getPlan());
         Project project = new Project(seq(fieldLiteral, countAlias), aggregate);
-        SortOrder sortOrder = new SortOrder(countAlias, Descending$.MODULE$, Ascending$.MODULE$.defaultNullOrdering(), seq());
+        SortOrder sortOrder = new SortOrder(countFunc, Descending$.MODULE$, Ascending$.MODULE$.defaultNullOrdering(), seq());
         Sort sort = new Sort(seq(sortOrder), true, project);
         GlobalLimit limit = new GlobalLimit(Literal.create(topValues, IntegerType), new LocalLimit(Literal.create(topValues, IntegerType), sort));
         return new SubqueryAlias(new AliasIdentifier(TOP_VALUES + "_subquery"), limit);
