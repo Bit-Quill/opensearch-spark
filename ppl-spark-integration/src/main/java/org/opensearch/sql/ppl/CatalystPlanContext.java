@@ -12,7 +12,7 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.catalyst.plans.logical.SubqueryAlias;
 import org.apache.spark.sql.catalyst.plans.logical.Union;
-import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.Metadata;/**/
 import org.opensearch.sql.ast.expression.UnresolvedExpression;
 import org.opensearch.sql.data.type.ExprType;
 import scala.collection.Iterator;

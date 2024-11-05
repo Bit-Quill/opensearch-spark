@@ -27,9 +27,10 @@ class PPLLogicalPlanTrendlineCommandTranslatorTestSuite
   test("WMA") {
     val context = new CatalystPlanContext
     val logPlan =
-      planTransformer.visit(plan(pplParser, "source=relation | trendline wma(3, age)"), context)
-
+      planTransformer.visit(plan(pplParser, "source=relation | trendline sort age wma(3, age)"), context)
+    // scalastyle:off println
     println(logPlan.toString())
+    // scalastyle:on println
 
 
 //    val table = UnresolvedRelation(Seq("relation"))
