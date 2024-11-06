@@ -93,6 +93,7 @@ NULLS:                              'NULLS';
 
 //TRENDLINE KEYWORDS
 SMA:                                'SMA';
+WMA:                                'WMA';
 
 // ARGUMENT KEYWORDS
 KEEPEMPTY:                          'KEEPEMPTY';
