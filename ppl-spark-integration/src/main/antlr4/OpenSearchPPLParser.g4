@@ -263,7 +263,8 @@ trendlineClause
    ;
 
 trendlineType
-   : (SMA | WMA)
+   : SMA
+   | WMA
    ;
 
 kmeansCommand
