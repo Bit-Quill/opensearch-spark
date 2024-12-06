@@ -278,7 +278,7 @@ trendlineType
    ;
 
 appendcolCommand
-   : APPENDCOL LT_SQR_PRTHS commands (PIPE commands)? RT_SQR_PRTHS
+   : APPENDCOL LT_SQR_PRTHS commands (PIPE commands)* RT_SQR_PRTHS
    ;
 
 kmeansCommand
