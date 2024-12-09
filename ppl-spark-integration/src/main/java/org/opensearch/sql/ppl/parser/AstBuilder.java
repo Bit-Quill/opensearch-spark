@@ -91,6 +91,7 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
   @Override
   public UnresolvedPlan visitQueryStatement(OpenSearchPPLParser.QueryStatementContext ctx) {
     UnresolvedPlan pplCommand = visit(ctx.pplCommands());
+    visit(ctx.commands().get(0));
     return ctx.commands().stream().map(this::visit).reduce(pplCommand, (r, e) -> e.attach(r));
   }
 
@@ -415,6 +416,19 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
             .map(Field.class::cast)
             .map(sort -> new Trendline(Optional.of(sort), trendlineComputations))
             .orElse(new Trendline(Optional.empty(), trendlineComputations));
+  }
+
+  @Override
+  public UnresolvedPlan visitAppendcolCommand(OpenSearchPPLParser.AppendcolCommandContext ctx) {
+
+    // All args validation should happen here.
+    System.out.println("No. of cmd: " + ctx.commands().size());
+
+    // TD: Pass on AppendColSpecific option also
+    final Optional<UnresolvedPlan> pplCmd = ctx.commands().stream().map(this::visit).reduce((r, e) -> e.attach(r));
+
+    // Throw some exception.
+    return pplCmd.map(AppendCol::new).orElse(null);
   }
 
   private Trendline.TrendlineComputation toTrendlineComputation(OpenSearchPPLParser.TrendlineClauseContext ctx) {
