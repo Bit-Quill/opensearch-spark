@@ -417,6 +417,15 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
             .orElse(new Trendline(Optional.empty(), trendlineComputations));
   }
 
+  @Override
+  public UnresolvedPlan visitAppendcolCommand(OpenSearchPPLParser.AppendcolCommandContext ctx) {
+    final Optional<UnresolvedPlan> pplCmd = ctx.commands().stream()
+            .map(this::visit)
+            .reduce((r, e) -> e.attach(r));
+    // ANTLR parser check guarantee pplCmd won't be null.
+    return new AppendCol(pplCmd.get());
+  }
+
   private Trendline.TrendlineComputation toTrendlineComputation(OpenSearchPPLParser.TrendlineClauseContext ctx) {
     int numberOfDataPoints = Integer.parseInt(ctx.numberOfDataPoints.getText());
     if (numberOfDataPoints < 1) {

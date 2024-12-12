@@ -6,6 +6,7 @@
 package org.opensearch.sql.ppl;
 
 import org.apache.spark.sql.catalyst.TableIdentifier;
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute$;
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction;
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation;
 import org.apache.spark.sql.catalyst.analysis.UnresolvedStar$;
@@ -25,6 +26,7 @@ import org.apache.spark.sql.catalyst.plans.logical.Limit;
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$;
 import org.apache.spark.sql.catalyst.plans.logical.Project$;
+import org.apache.spark.sql.catalyst.plans.logical.SubqueryAlias$;
 import org.apache.spark.sql.execution.ExplainMode;
 import org.apache.spark.sql.execution.command.DescribeTableCommand;
 import org.apache.spark.sql.execution.command.ExplainCommand;
@@ -35,18 +37,22 @@ import org.opensearch.sql.ast.AbstractNodeVisitor;
 import org.opensearch.sql.ast.Node;
 import org.opensearch.sql.ast.expression.Alias;
 import org.opensearch.sql.ast.expression.Argument;
+import org.opensearch.sql.ast.expression.Compare;
+import org.opensearch.sql.ast.expression.DataType;
 import org.opensearch.sql.ast.expression.Field;
 import org.opensearch.sql.ast.expression.Function;
 import org.opensearch.sql.ast.expression.In;
 import org.opensearch.sql.ast.expression.Let;
 import org.opensearch.sql.ast.expression.Literal;
 import org.opensearch.sql.ast.expression.ParseMethod;
+import org.opensearch.sql.ast.expression.QualifiedName;
 import org.opensearch.sql.ast.expression.UnresolvedExpression;
 import org.opensearch.sql.ast.expression.WindowFunction;
 import org.opensearch.sql.ast.statement.Explain;
 import org.opensearch.sql.ast.statement.Query;
 import org.opensearch.sql.ast.statement.Statement;
 import org.opensearch.sql.ast.tree.Aggregation;
+import org.opensearch.sql.ast.tree.AppendCol;
 import org.opensearch.sql.ast.tree.Correlation;
 import org.opensearch.sql.ast.tree.CountedAggregation;
 import org.opensearch.sql.ast.tree.Dedupe;
@@ -69,6 +75,7 @@ import org.opensearch.sql.ast.tree.Rename;
 import org.opensearch.sql.ast.tree.Sort;
 import org.opensearch.sql.ast.tree.SubqueryAlias;
 import org.opensearch.sql.ast.tree.Trendline;
+import org.opensearch.sql.ast.tree.UnresolvedPlan;
 import org.opensearch.sql.ast.tree.Window;
 import org.opensearch.sql.common.antlr.SyntaxCheckException;
 import org.opensearch.sql.ppl.utils.FieldSummaryTransformer;
@@ -251,6 +258,99 @@ public class CatalystQueryPlanVisitor extends AbstractNodeVisitor<LogicalPlan, C
         trendlineProjectExpressions.addAll(TrendlineCatalystUtils.visitTrendlineComputations(expressionAnalyzer, node.getComputations(), node.getSortByField(), context));
 
         return context.apply(p -> new org.apache.spark.sql.catalyst.plans.logical.Project(seq(trendlineProjectExpressions), p));
+    }
+
+    @Override
+    public LogicalPlan visitAppendCol(AppendCol node, CatalystPlanContext context) {
+
+        final String APPENDCOL_ID = WindowSpecTransformer.ROW_NUMBER_COLUMN_NAME;
+        final String TABLE_LHS = "T1";
+        final String TABLE_RHS = "T2";
+        scala.collection.mutable.Seq<Expression> fieldsToRemove = seq(
+                UnresolvedAttribute$.MODULE$.apply(TABLE_LHS + "." + APPENDCOL_ID),
+                UnresolvedAttribute$.MODULE$.apply(TABLE_RHS + "." + APPENDCOL_ID));
+        final Compare innerJoinCondition = new Compare("=",
+                new Field(QualifiedName.of(TABLE_LHS ,APPENDCOL_ID)),
+                new Field(QualifiedName.of(TABLE_RHS, APPENDCOL_ID)));
+
+        // Add a new projection layer with * and ROW_NUMBER (Main-search)
+        LogicalPlan leftTemp = node.getChild().get(0).accept(this, context);
+        var mainSearch = getRowNumStarProjection(context, leftTemp, TABLE_LHS);
+        context.withSubqueryAlias(mainSearch);
+
+        // Traverse to look for relation clause then append it into the sub-search.
+        Relation relation = retrieveRelationClause(node.getChild().get(0));
+        appendRelationClause(node.getSubSearch(), relation);
+
+        context.apply(left -> {
+            // Add a new projection layer with * and ROW_NUMBER (Sub-search)
+            LogicalPlan right = node.getSubSearch().accept(this, context);
+            var subSearch = getRowNumStarProjection(context, right, TABLE_RHS);
+            context.withSubqueryAlias(subSearch);
+
+            Optional<Expression> joinCondition = Optional.of(innerJoinCondition)
+                    .map(c -> expressionAnalyzer.analyzeJoinCondition(c, context));
+            context.retainAllNamedParseExpressions(p -> p);
+            context.retainAllPlans(p -> p);
+
+            LogicalPlan joinedQuery = join(mainSearch, subSearch, Join.JoinType.LEFT, joinCondition, new Join.JoinHint());
+
+            // Remove the APPEND_ID
+            return new org.apache.spark.sql.catalyst.plans.logical.DataFrameDropColumns(fieldsToRemove, joinedQuery);
+        });
+        return context.getPlan();
+    }
+
+    private static void appendRelationClause(Node subSearch, Relation relation) {
+
+        Relation table = new Relation(relation.getTableNames());
+        // Replace it with a function to look up the search command and extract the index name.
+        while (subSearch != null) {
+            try {
+                subSearch = subSearch.getChild().get(0);
+            } catch (NullPointerException ex) {
+                System.out.println("Null when getting the child ");
+                ((UnresolvedPlan) subSearch).attach(table);
+                break;
+            }
+        }
+    }
+
+    private static Relation retrieveRelationClause(Node node) {
+        while (node != null) {
+            if (node instanceof Relation) {
+                return (Relation) node;
+            } else {
+                try {
+                    node = node.getChild().get(0);
+                } catch (NullPointerException ex) {
+                    // NPE will be thrown by some node.getChild() call.
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+
+    private org.apache.spark.sql.catalyst.plans.logical.SubqueryAlias getRowNumStarProjection(CatalystPlanContext context, LogicalPlan lp, String alias) {
+
+        final String DUMMY_SORT_FIELD = "1";
+
+        expressionAnalyzer.visitLiteral(
+                new Literal(DUMMY_SORT_FIELD, DataType.STRING), context);
+        Expression strExp = context.popNamedParseExpressions().get();
+        SortOrder sortOrder = SortUtils.sortOrder(strExp, false);
+
+        NamedExpression appendCol = WindowSpecTransformer.buildRowNumber(seq(), seq(sortOrder));
+
+        List<NamedExpression> projectList = (context.getNamedParseExpressions().isEmpty())
+                ? List.of(appendCol, UnresolvedStar$.MODULE$.apply(Option.empty()))
+                : List.of(appendCol);
+
+        LogicalPlan lpWithProjection = new org.apache.spark.sql.catalyst.plans.logical.Project(seq(
+                projectList), lp);
+        return SubqueryAlias$.MODULE$.apply(alias, lpWithProjection);
+
     }
 
     @Override
