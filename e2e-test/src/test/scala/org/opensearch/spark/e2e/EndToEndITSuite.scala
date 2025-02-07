@@ -75,7 +75,7 @@ class EndToEndITSuite extends AnyFlatSpec with TableDrivenPropertyChecks with Be
     val dockerProcess = new ProcessBuilder("docker", "compose", "up", "-d")
       .directory(new File(DOCKER_INTEG_DIR))
       .start()
-    val completed = dockerProcess.waitFor(30, TimeUnit.MINUTES)
+    val completed = dockerProcess.waitFor(60, TimeUnit.MINUTES)
     if (!completed) {
       throw new IllegalStateException("Unable to start docker cluster")
     }
