@@ -75,7 +75,19 @@ class EndToEndITSuite extends AnyFlatSpec with TableDrivenPropertyChecks with Be
     val dockerProcess = new ProcessBuilder("docker", "compose", "up", "-d")
       .directory(new File(DOCKER_INTEG_DIR))
       .start()
+    var stopReading = false
+    new Thread() {
+      override def run(): Unit = {
+        val reader = new BufferedReader(new InputStreamReader(dockerProcess.getInputStream))
+        var line = reader.readLine()
+        while (!stopReading && line != null) {
+          logInfo("*** " + line)
+          line = reader.readLine()
+        }
+      }
+    }.start()
     val completed = dockerProcess.waitFor(60, TimeUnit.MINUTES)
+    stopReading = true
     if (!completed) {
       throw new IllegalStateException("Unable to start docker cluster")
     }
